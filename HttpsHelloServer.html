@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+<title>HttpsHelloServer.java</title>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<style type="text/css">
+<!--
+body {color: #000000; background-color: #ffffff; font-family: Monospaced}
+pre {color: #000000; background-color: #ffffff; font-family: Monospaced}
+table {color: #000000; background-color: #e9e8e2; font-family: Monospaced}
+.ST4 {color: #009900; font-family: Monospaced; font-style: italic}
+.keyword-directive {color: #0000e6}
+.ST6 {color: #ce7b00; font-family: Monospaced; font-weight: bold}
+.ST5 {color: #009900}
+.character {color: #ce7b00}
+.ST0 {color: #969696; font-family: Monospaced; font-weight: bold}
+.comment {color: #969696}
+.ST1 {font-family: Monospaced; font-weight: bold}
+.ST3 {font-family: Monospaced; font-weight: bold; font-style: italic}
+.ST2 {font-family: Monospaced; font-style: italic}
+-->
+</style>
+</head>
+<body>
+<table width="100%"><tr><td align="center">HttpsHelloServer.java</td></tr></table>
+<pre>
+<span class="keyword-directive">package</span> tls;
+
+<span class="keyword-directive">import</span> com.sun.net.httpserver.Headers;
+<span class="keyword-directive">import</span> com.sun.net.httpserver.HttpExchange;
+<span class="keyword-directive">import</span> com.sun.net.httpserver.HttpHandler;
+<span class="keyword-directive">import</span> com.sun.net.httpserver.HttpsConfigurator;
+<span class="keyword-directive">import</span> com.sun.net.httpserver.HttpsServer;
+<span class="keyword-directive">import</span> java.io.IOException;
+<span class="keyword-directive">import</span> java.io.OutputStream;
+<span class="keyword-directive">import</span> java.net.InetSocketAddress;
+<span class="keyword-directive">import</span> java.security.GeneralSecurityException;
+<span class="keyword-directive">import</span> java.util.concurrent.Executor;
+<span class="keyword-directive">import</span> java.util.logging.Level;
+<span class="keyword-directive">import</span> java.util.logging.Logger;
+<span class="keyword-directive">import</span> javax.net.ssl.SSLContext;
+
+<span class="comment">/**</span>
+<span class="comment"> * </span><span class="ST0">Une</span> <span class="ST0">classe</span> <span class="ST0">implémentant</span> <span class="ST0">un</span> <span class="ST0">service</span> <span class="ST0">Hello</span> <span class="ST0">personnalisé</span>
+<span class="comment"> * </span><span class="ST0">sécurisé</span> <span class="ST0">par</span> <span class="ST0">SSL</span><span class="ST0">/</span><span class="ST0">TLS</span>
+<span class="comment"> * </span><span class="ST0">@author</span> <span class="comment">Patrick</span> <span class="comment">Guichet</span>
+ <span class="comment">*/</span>
+<span class="keyword-directive">public</span> <span class="keyword-directive">class</span> <span class="ST1">HttpsHelloServer</span> {
+    <span class="comment">////////////////////////////////////////////////////////</span>
+    <span class="comment">// Initialisation des propriétés systèmes nécessaires </span>
+    <span class="comment">// à l&#39;établissement d&#39;un contexte SSL</span>
+    <span class="keyword-directive">static</span> {
+        System.<span class="ST2">setProperty</span>(<span class="character">&quot;</span><span class="character">javax.net.ssl.keyStore</span><span class="character">&quot;</span>, <span class="character">&quot;</span><span class="character">kssrv.ks</span><span class="character">&quot;</span>);
+        System.<span class="ST2">setProperty</span>(<span class="character">&quot;</span><span class="character">javax.net.ssl.keyStorePassword</span><span class="character">&quot;</span>, <span class="character">&quot;</span><span class="character">x4TRDf4JHY578pth</span><span class="character">&quot;</span>);
+        System.<span class="ST2">setProperty</span>(<span class="character">&quot;</span><span class="character">javax.net.ssl.keyStoreType</span><span class="character">&quot;</span>, <span class="character">&quot;</span><span class="character">JCEKS</span><span class="character">&quot;</span>);
+        System.<span class="ST2">setProperty</span>(<span class="character">&quot;</span><span class="character">javax.net.debug</span><span class="character">&quot;</span>, <span class="character">&quot;</span><span class="character">all</span><span class="character">&quot;</span>);
+    }
+
+    <span class="comment">/**</span>
+<span class="comment">     * </span><span class="comment">Classe</span> <span class="comment">implémentant</span> <span class="comment">le</span> <span class="comment">gestionnaire</span> <span class="comment">de</span> <span class="comment">requètes</span> <span class="comment">vers</span> <span class="comment">le</span> <span class="comment">service</span> <span class="comment">hello</span>
+     <span class="comment">*/</span>
+    <span class="keyword-directive">static</span> <span class="keyword-directive">class</span> <span class="ST3">HelloHandler</span> <span class="keyword-directive">implements</span> HttpHandler {
+
+        <span class="keyword-directive">private</span> <span class="keyword-directive">static</span> <span class="keyword-directive">final</span> String <span class="ST4">PLAIN_HELLO</span> = <span class="character">&quot;</span><span class="character">&lt;h1 align=&#39;center&#39;&gt;HELLO&lt;/h1&gt;</span><span class="character">&quot;</span>;
+        <span class="keyword-directive">private</span> <span class="keyword-directive">static</span> <span class="keyword-directive">final</span> String <span class="ST4">PERSONNAL_HELLO</span> = <span class="character">&quot;</span><span class="character">&lt;h1 align=&#39;center&#39;&gt;HELLO %s %s&lt;/h1&gt;</span><span class="character">&quot;</span>;
+
+        <span class="comment">/**</span>
+<span class="comment">         * </span><span class="ST0">Méthode</span> <span class="ST0">de</span> <span class="ST0">gestion</span> <span class="ST0">des</span> <span class="ST0">requètes</span> <span class="ST0">vers</span> <span class="ST0">le</span> <span class="ST0">service</span> <span class="ST0">hello</span>
+<span class="comment">         * </span><span class="ST0">@param</span> he <span class="comment">l</span><span class="comment">&#39;</span><span class="comment">objet</span> <span class="comment">encapsulant</span> <span class="comment">la</span> <span class="comment">requète</span> <span class="comment">et</span> <span class="comment">la</span> <span class="comment">réponse</span>
+<span class="comment">         * </span><span class="ST0">@throws</span> <span class="comment">IOException</span> <span class="comment">si</span> <span class="comment">le</span> <span class="comment">traitement</span> <span class="comment">de</span> <span class="comment">la</span> <span class="comment">requète</span> <span class="comment">ou</span> <span class="comment">de</span> <span class="comment">la</span> <span class="comment">réponse</span> <span class="comment">échoue</span>
+         <span class="comment">*/</span>
+        @Override
+        <span class="keyword-directive">public</span> <span class="keyword-directive">void</span> <span class="ST1">handle</span>(HttpExchange he) <span class="keyword-directive">throws</span> IOException {
+            <span class="comment">// récupération des paramètres de requètes</span>
+            String query = he.getRequestURI().getQuery();
+            <span class="comment">// récupération des en-têtes de la réponse HTTP</span>
+            Headers responseHeaders = he.getResponseHeaders();
+            responseHeaders.set(<span class="character">&quot;</span><span class="character">Content-Type</span><span class="character">&quot;</span>, <span class="character">&quot;</span><span class="character">text/html</span><span class="character">&quot;</span>);
+            <span class="comment">// Fabrication de la réponse (ordinaire ou personnalisée)</span>
+            String response = <span class="ST4">PLAIN_HELLO</span>;
+            <span class="keyword-directive">if</span> (query != <span class="keyword-directive">null</span>) {
+                response = <span class="ST2">parseHelloQuery</span>(query);
+            }
+            <span class="keyword-directive">byte</span>[] responseBytes = response.getBytes();
+            <span class="comment">// préparation de la réponse</span>
+            he.sendResponseHeaders(200, responseBytes.<span class="ST5">length</span>);
+            <span class="keyword-directive">try</span> (OutputStream out = he.getResponseBody()) {
+                out.write(responseBytes);
+                out.flush();
+            }
+        }
+
+        <span class="comment">/**</span>
+<span class="comment">         * </span><span class="ST0">Méthode</span> <span class="ST0">d</span><span class="ST0">&#39;</span><span class="ST0">aide</span> <span class="ST0">pour</span> <span class="ST0">la</span> <span class="ST0">récupération</span> <span class="ST0">des</span> <span class="ST0">valeurs</span> <span class="ST0">des</span> <span class="ST0">paramètres</span> <span class="ST0">nom</span> <span class="ST0">et</span> <span class="ST0">prenom</span>
+<span class="comment">         * </span><span class="ST0">@param</span> query <span class="comment">les</span> <span class="comment">paramètres</span> <span class="comment">de</span> <span class="comment">requète</span><span class="comment"> :</span>
+<span class="comment">         * </span><span class="comment">normalement</span> <span class="comment">une</span> <span class="comment">chaîne</span> <span class="comment">de</span> <span class="comment">la</span> <span class="comment">forme</span> <span class="comment">nom</span><span class="comment"> = ****&amp;</span><span class="comment">prenom</span><span class="comment">=****</span>
+<span class="comment">         * </span><span class="ST0">@return</span> <span class="comment">le</span> <span class="comment">message</span> <span class="comment">d</span><span class="comment">&#39;</span><span class="comment">accueil</span> <span class="comment">personnalisé</span>
+         <span class="comment">*/</span>
+        <span class="keyword-directive">private</span> <span class="keyword-directive">static</span> String <span class="ST3">parseHelloQuery</span>(String query) {
+            String[] params = query.split(<span class="character">&quot;</span><span class="ST6">\\</span><span class="character">s*</span><span class="ST6">\\</span><span class="character">&amp;</span><span class="ST6">\\</span><span class="character">s*</span><span class="character">&quot;</span>);
+            <span class="comment">// récupération prénom</span>
+            String prenom = params[1].split(<span class="character">&quot;</span><span class="ST6">\\</span><span class="character">s*=</span><span class="ST6">\\</span><span class="character">s*</span><span class="character">&quot;</span>)[1];
+            <span class="comment">// récupération nom</span>
+            String nom = params[0].split(<span class="character">&quot;</span><span class="ST6">\\</span><span class="character">s*=</span><span class="ST6">\\</span><span class="character">s*</span><span class="character">&quot;</span>)[1];
+            <span class="keyword-directive">return</span> String.<span class="ST2">format</span>(<span class="ST4">PERSONNAL_HELLO</span>, prenom, nom);
+        }
+    }
+
+    <span class="comment">/**</span>
+<span class="comment">     * </span><span class="comment">Classe</span> <span class="comment">gérant</span> <span class="comment">l</span><span class="comment">&#39;</span><span class="comment">ordonnancement</span> <span class="comment">des</span> <span class="comment">réactions</span> <span class="comment">aux</span> <span class="comment">requètes</span>
+<span class="comment">     * </span><span class="comment">Ici</span> <span class="comment">un</span> <span class="comment">nouveau</span> <span class="comment">thread</span> <span class="comment">est</span> <span class="comment">créé</span> <span class="comment">pour</span> <span class="comment">le</span> <span class="comment">traitement</span> <span class="comment">de</span> <span class="comment">chaque</span> <span class="comment">requète</span>
+     <span class="comment">*/</span>
+    <span class="keyword-directive">static</span> <span class="keyword-directive">class</span> <span class="ST3">ThreadPerTaskExecutor</span> <span class="keyword-directive">implements</span> Executor {
+
+        <span class="comment">/**</span>
+<span class="comment">         * </span><span class="ST0">Méthode</span> <span class="ST0">implémentant</span> <span class="ST0">la</span> <span class="ST0">stratégie</span> <span class="ST0">d</span><span class="ST0">&#39;</span><span class="ST0">exécution</span> <span class="ST0">d</span><span class="ST0">&#39;</span><span class="ST0">une</span> <span class="ST0">nouvelle</span> <span class="ST0">requète</span>
+<span class="comment">         * </span><span class="ST0">@param</span> command <span class="comment">le</span> <span class="comment">Runnable</span> <span class="comment">à</span> <span class="comment">exécuter</span>
+         <span class="comment">*/</span>
+        @Override
+        <span class="keyword-directive">public</span> <span class="keyword-directive">void</span> <span class="ST1">execute</span>(Runnable command) {
+            <span class="comment">// Instancier un nouveau thread dédié à l&#39;exécution de ce Runnable</span>
+            <span class="comment">// et le démarrer</span>
+            <span class="keyword-directive">new</span> Thread(command).start();
+        }
+    }
+    <span class="comment">// le contexte du service</span>
+    <span class="keyword-directive">private</span> <span class="keyword-directive">static</span> <span class="keyword-directive">final</span> String <span class="ST4">CONTEXT</span> = <span class="character">&quot;</span><span class="character">/hello</span><span class="character">&quot;</span>;
+    <span class="comment">// le serveur HTTPS</span>
+    <span class="keyword-directive">private</span> HttpsServer <span class="ST5">server</span>;
+
+    <span class="comment">/**</span>
+<span class="comment">     * </span><span class="ST0">Création</span> <span class="ST0">d</span><span class="ST0">&#39;</span><span class="ST0">une</span> <span class="ST0">instance</span> <span class="ST0">du</span> <span class="ST0">serveur</span>
+<span class="comment">     * </span><span class="ST0">@param</span> host <span class="comment">le</span> <span class="comment">nom</span> <span class="comment">de</span> <span class="comment">l</span><span class="comment">&#39;</span><span class="comment">hôte</span> <span class="comment">hébergeant</span> <span class="comment">le</span> <span class="comment">service</span>
+<span class="comment">     * </span><span class="ST0">@param</span> port <span class="comment">le</span> <span class="comment">numéro</span> <span class="comment">de</span> <span class="comment">port</span> <span class="comment">associé</span> <span class="comment">au</span> <span class="comment">service</span> <span class="comment">hello</span>
+<span class="comment">     * </span><span class="ST0">@throws</span> <span class="comment">IOException</span> <span class="comment">si</span> <span class="comment">la</span> <span class="comment">création</span> <span class="comment">du</span> <span class="comment">serveur</span> <span class="comment">échoue</span>
+     <span class="comment">*/</span>
+    <span class="keyword-directive">public</span> <span class="ST1">HttpsHelloServer</span>(String host, <span class="keyword-directive">int</span> port) <span class="keyword-directive">throws</span> IOException, GeneralSecurityException {
+        <span class="keyword-directive">this</span>.<span class="ST5">server</span> = HttpsServer.<span class="ST2">create</span>(<span class="keyword-directive">new</span> InetSocketAddress(host, port), 0);
+        <span class="comment">// Association du contexte au handler chargé de traiter les requètes</span>
+        <span class="ST5">server</span>.createContext(<span class="ST4">CONTEXT</span>, <span class="keyword-directive">new</span> HelloHandler());
+        <span class="comment">// Configuration du contexte SSL</span>
+        <span class="keyword-directive">this</span>.<span class="ST5">server</span>.setHttpsConfigurator(<span class="keyword-directive">new</span> HttpsConfigurator(SSLContext.<span class="ST2">getDefault</span>()));
+        <span class="comment">// Configuration de l&#39;exécuteur traitant les réponses</span>
+        <span class="keyword-directive">this</span>.<span class="ST5">server</span>.setExecutor(<span class="keyword-directive">new</span> ThreadPerTaskExecutor());
+        <span class="comment">// Lancement du serveur</span>
+        <span class="keyword-directive">this</span>.<span class="ST5">server</span>.start();
+        System.<span class="ST4">out</span>.println(<span class="character">&quot;</span><span class="character">En attente de connection!..</span><span class="character">&quot;</span>);
+    }
+
+    <span class="comment">/**</span>
+<span class="comment">     * </span><span class="ST0">Lancement</span> <span class="ST0">de</span> <span class="ST0">la</span> <span class="ST0">classe</span>
+<span class="comment">     * </span><span class="ST0">@param</span> args <span class="comment">les</span> <span class="comment">éventuels</span> <span class="comment">arguments</span> <span class="comment">transmis</span> <span class="comment">en</span> <span class="comment">ligne</span> <span class="comment">de</span> <span class="comment">commande</span>
+     <span class="comment">*/</span>
+    <span class="keyword-directive">public</span> <span class="keyword-directive">static</span> <span class="keyword-directive">void</span> <span class="ST3">main</span>(String[] args) {
+        <span class="keyword-directive">try</span> {
+            HttpsHelloServer httpsHelloServer = <span class="keyword-directive">new</span> HttpsHelloServer(<span class="character">&quot;</span><span class="character">localhost</span><span class="character">&quot;</span>, 7878);
+        } <span class="keyword-directive">catch</span> (IOException | GeneralSecurityException ex) {
+            Logger.<span class="ST2">getLogger</span>(HttpsHelloServer.<span class="keyword-directive">class</span>.getName()).log(Level.<span class="ST4">SEVERE</span>, <span class="keyword-directive">null</span>, ex);
+        }
+    }
+}
+
+</pre></body>
+</html>
